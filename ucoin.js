@@ -60,6 +60,7 @@ class UCoin {
         this.swapInProgress = [];
         this.countries = [];
         this.periods = [];
+        this.periodCompleted = {};
     }
 
     save() {
@@ -80,6 +81,17 @@ class UCoin {
 
     // Scrap data
     //
+    readCompletion() {
+        const params = document.location.href.match(/country=(\w+)&period=(\d+)(&type=(\d+))?/)
+        if (params) {
+            const period = `${params[1]}/${params[2]}/${params[4] || '1'}`;
+            const info = document.getElementsByClassName("print_ico")[0]?.parentElement?.parentElement?.textContent;
+            const completed = parseFloat(info.match(" (\\d+(\\.\\d+)?)% ")[1]);
+            this.periodCompleted[period] = completed
+            this.save();
+        }
+    }
+
     readPeriods() {
         const self = this;
         const url = `https://es.ucoin.net/gallery/?uid=${self.uid}`;
@@ -159,8 +171,8 @@ class UCoin {
                                 composition: _getTextContent(row, 'desc', 0).split(/,? /)[0],
                                 weight: _getTextContent(row, 'desc', 0).split(/,? /)[1],
                                 diameter: _getTextContent(row, 'desc', 0).split(/,? /)[2],
-                                coinType: _getTextContent(row, 'gray-11', 1).split(' · ')[0],
-                                catalogNumber: _getTextContent(row, 'gray-11', 1).split(' · ')[1],
+                                coinType: _getTextContent(row, 'gray-11', 1).split(' Â· ')[0],
+                                catalogNumber: _getTextContent(row, 'gray-11', 1).split(' Â· ')[1],
                                 subject: _getTextContent(row, 'dgray-13', 0),
                                 mintmark: _getTextContent(row, 'gray-13', 0),
                                 price: parseFloat(_getTextContent(row, 'blue-12 right', 0).split('$ ')[1]) || 0.0
@@ -247,7 +259,7 @@ class UCoin {
                     Logger.log(`Reading SwapEvent #${sid}`);
                     var doc = new DOMParser().parseFromString(response, "text/xml");
                     var swapStatus = doc.getElementsByClassName("user-info")[1].nextSibling.children[1].textContent;
-                    var swapClosed = ["Éxito","Neutro","Fallido"].includes(swapStatus);
+                    var swapClosed = ["Ã‰xito","Neutro","Fallido"].includes(swapStatus);
                     if (swapClosed) {
                         self.swapClosed.push(sid);
                     }
@@ -410,6 +422,21 @@ class UCoin {
 
     // Powered pages
     //
+    touchCompletion() {
+        var rows = document.getElementsByClassName("period");
+        for (var i= 0; i < rows.length; i++) {
+            const row = rows.item(i);
+            const params = row.href.match(`country=(\\w+)&period=(\\d+)&uid=${this.uid}`);
+            if (params) {
+                const period = `${params[1]}/${params[2]}/1`;
+                const completed = this.periodCompleted[period];
+                if (completed >= 75) {
+                    row.setAttribute("style", `border-right: 3px ${completed >= 100 ? "solid" : completed >= 90 ? "dashed" : "dotted"} #008000;`)
+                }
+            }
+        }
+    }
+
     touchMySwapsPage() {
         var rows = document.getElementsByClassName("str");
         for (var i= 0; i < rows.length; i++) {
@@ -450,17 +477,18 @@ class UCoin {
     }
 
     touchCoinPage() {
-        const infoBlock = document.getElementsByClassName("coin-info")[0];
+        const infoBlocks = document.getElementsByClassName("coin-info");
+        const infoBlock = infoBlocks[infoBlocks.length - 1];
         const kmBlock = infoBlock.children[0].children[0].children[1];
         const country = kmBlock.firstChild.href.split("-")[0].split("/")[4];
         const kmValue = kmBlock.innerText.split(".")[0].replace("#", "%23").replace(" ", "+");
         let year = null;
         infoBlock.children[0].childNodes.forEach(node => {
-            if (node.children[0].innerText == "Año") {
+            if (node.children[0].innerText == "AÃ±o") {
                 year = node.children[1].innerText;
             }
         });
-        infoBlock.previousSibling.innerHTML = `<a href="https://es.numista.com/catalogue/index.php?e=${country}&r=${year}+${kmValue}&ct=coin&tb=y&tc=y&tn=y&tp=y&tt=y&cat=y&ca=3">Información:</a>`
+        infoBlocks[0].previousSibling.innerHTML = `<a href="https://es.numista.com/catalogue/index.php?e=&r=${country}+${year}+${kmValue}&ct=coin&tb=y&tc=y&tn=y&tp=y&tt=y&cat=y&ca=3">InformaciÃ³n:</a>`
     }
 
     showListByNeeded() {
@@ -616,6 +644,21 @@ class UCoin {
                 const cell = cells[i];
                 if (idsInSwap.includes(cell.id)) {
                     cell.style.background = "#999999";
+                }
+            };
+        }
+    }
+
+    checkCatalogPage() {
+        const country = document.getElementsByClassName("breadcrumb")[0].children[1].textContent;
+        const idsInSwap = me.swapInProgress.filter(c => c.country == country).map(c => c.catalogNumber);
+        if (idsInSwap.length > 0) {
+            const cells = document.getElementsByClassName("need");
+            for (var i= 0; i < cells.length; i++) {
+                const cell = cells[i];
+                const id = cell.parentElement.parentElement.textContent.match(/[A-Z]+# [0-9.]+/)[0];
+                if (idsInSwap.includes(id)) {
+                    cell.style.background = "#8eb08e";
                 }
             };
         }
@@ -789,36 +832,45 @@ if (document.location.href.startsWith('https://es.ucoin.net/')) {
 
     if (document.location.href.startsWith('https://es.ucoin.net/quote/')) {
         this.me.update();
-
-    } else if (document.location.href.startsWith(`https://es.ucoin.net/uid${this.me.uid}`)) {
+    }
+    if (document.location.href.startsWith(`https://es.ucoin.net/uid${this.me.uid}`)) {
         this.me.readPeriods();
         this.me.touchDownloads();
-
-    } else if (document.location.href.startsWith('https://es.ucoin.net/swap-mgr') && !document.location.href.match('sid=')) {
+    }
+    if (document.location.href.startsWith('https://es.ucoin.net/swap-mgr') && !document.location.href.match('sid=')) {
         if (this.me.checkSwapInfoChange()) {
             this.me.readSwapInfo();
         }
         this.me.touchMySwapsPage();
-
-    } else if (document.location.href.startsWith('https://es.ucoin.net/swap-mgr/?sid=')) {
+    }
+    if (document.location.href.startsWith('https://es.ucoin.net/swap-mgr/?sid=')) {
         this.me.checkSwapEvent();
-
-    } else if (document.location.href.startsWith('https://es.ucoin.net/swap-list/?uid=') && !document.location.href.match(`uid=${this.me.uid}`)) {
+    }
+    if (document.location.href.startsWith('https://es.ucoin.net/swap-list/?uid=') && !document.location.href.match(`uid=${this.me.uid}`)) {
         this.me.checkSwapPage();
-
-    } else if (document.location.href.startsWith(`https://es.ucoin.net/wish-list/?uid=${this.me.uid}`)) {
+    }
+    if (document.location.href.startsWith(`https://es.ucoin.net/wish-list/?uid=${this.me.uid}`)) {
         this.me.checkMyWishPage();
-
-    } else if (document.location.href.startsWith('https://es.ucoin.net/wish-list/')) {
+    }
+    if (document.location.href.startsWith('https://es.ucoin.net/wish-list/')) {
         this.me.checkYourWishPage();
-
-    } else if (document.location.href.startsWith('https://es.ucoin.net/table/')) {
+    }
+    if (document.location.href.startsWith('https://es.ucoin.net/table/')) {
         this.me.checkTablePage();
-
-    } else if (document.location.href.startsWith('https://es.ucoin.net/swaps/')) {
+    }
+    if (document.location.href.startsWith('https://es.ucoin.net/catalog/?') && document.location.href.match(`uid=${this.me.uid}`)) {
+        this.me.checkCatalogPage();
+    }
+    if (document.location.href.startsWith('https://es.ucoin.net/swaps/')) {
         this.me.touchSwapUsersPage();
-
-    } else if (document.location.href.startsWith('https://es.ucoin.net/coin/')) {
+    }
+    if (document.location.href.startsWith('https://es.ucoin.net/coin/')) {
         this.me.touchCoinPage();
+    }
+    if (document.location.href.startsWith('https://es.ucoin.net/table/?') && document.location.href.match(`uid=${this.me.uid}`)) {
+        this.me.readCompletion();
+    }
+    if (document.location.href.startsWith('https://es.ucoin.net/')) {
+        this.me.touchCompletion();
     }
 }
